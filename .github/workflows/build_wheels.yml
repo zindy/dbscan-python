@@ -1,143 +1,33 @@
-# https://github.com/pypa/cibuildwheel/blob/main/examples/github-deploy.yml
-name: build
+name: build-windows-wheel
 
-on: [push, pull_request, workflow_dispatch]
+on: [push, workflow_dispatch]
 
 jobs:
-  build_and_test:
-    name: Build executable and run test
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build
-        run: |
-          mkdir build
-          cd build
-          cmake ..
-          make -j
-
-      - name: Test
-        run: |
-          cd build
-          ctest --no-tests=error --output-on-failure
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: executable
-          path: ./build/executable/dbscan
-
-  generate_matrix:
-    name: Generate Matrix
-    runs-on: ubuntu-latest
-
-    outputs:
-      OSES: ${{ steps.development.outputs.OSES || steps.production.outputs.OSES }}
-      CIBW_ARCHS_LINUX: ${{ steps.development.outputs.CIBW_ARCHS_LINUX || steps.production.outputs.CIBW_ARCHS_LINUX }}
-
-    steps:
-    - name: Development
-      id: development
-      if: "!startsWith(github.ref, 'refs/tags/v')"
-      run: |
-        echo 'OSES=["ubuntu-latest", "windows-latest"]' >> $GITHUB_OUTPUT
-        echo 'CIBW_ARCHS_LINUX="auto"' >> $GITHUB_OUTPUT
-
-    - name: Production
-      id: production
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: |
-        echo 'OSES=["ubuntu-latest", "macos-latest", "windows-latest"]' >> $GITHUB_OUTPUT
-        echo 'CIBW_ARCHS_LINUX="auto aarch64"' >> $GITHUB_OUTPUT
-
   build_wheels:
-    needs: [generate_matrix]
-    name: Build wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Build wheel on windows-latest
+    runs-on: windows-latest
+    # This keeps it from running on every single branch if you only want master/tags
     if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
-    strategy:
-      matrix:
-        os: ${{ fromJson(needs.generate_matrix.outputs.OSES) }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up QEMU
-        if: runner.os == 'Linux' && startsWith(github.ref, 'refs/tags/v')
-        uses: docker/setup-qemu-action@v2
-        with:
-          platforms: all
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.17.0
         env:
-          #CIBW_ARCHS_MACOS: "x86_64 arm64"
-          #CIBW_ARCHS_LINUX: ${{ fromJson(needs.generate_matrix.outputs.CIBW_ARCHS_LINUX) }}
-          CIBW_ARCHS_WINDOWS: "AMD64"
+          # Targets only CPython 3.12 for Windows 64-bit
+          CIBW_BUILD: "cp312-win_amd64"
           CIBW_TEST_REQUIRES: "pytest scikit-learn"
           CIBW_BEFORE_BUILD: "pip install numpy>=2.0.0"
           CIBW_BEFORE_BUILD_WINDOWS: "pip install numpy>=2.0.0 delvewheel"
+          # delvewheel is important for Windows to bundle necessary DLLs
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: "delvewheel show {wheel} && delvewheel repair -w {dest_dir} {wheel}"
           CIBW_TEST_COMMAND: "pytest {package}/test"
-          CIBW_BUILD: "cp312-*"
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
+          name: windows-python-312-wheel
           path: ./wheelhouse/*.whl
-
-  build_sdist:
-    name: Build source distribution
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Build sdist
-        run: pipx run build --sdist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: ./dist/*.tar.gz
-
-  upload_pypi:
-    needs: [build_wheels, build_sdist]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheels-ubuntu-latest
-          path: dist/wheels
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheels-macos-latest
-          path: dist/wheels
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheels-windows-latest
-          path: dist/wheels
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: sdist
-          path: dist/sdist
-
-      - name: Combine artifacts for PyPI upload
-        run: |
-          mv dist/wheels/* dist/
-          mv dist/sdist/* dist/
-          rm -rf dist/wheels dist/sdist
-
-      - uses: pypa/gh-action-pypi-publish@v1.5.0
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
