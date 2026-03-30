@@ -74,8 +74,8 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.17.0
         env:
-          CIBW_ARCHS_MACOS: "x86_64 arm64"
-          CIBW_ARCHS_LINUX: ${{ fromJson(needs.generate_matrix.outputs.CIBW_ARCHS_LINUX) }}
+          #CIBW_ARCHS_MACOS: "x86_64 arm64"
+          #CIBW_ARCHS_LINUX: ${{ fromJson(needs.generate_matrix.outputs.CIBW_ARCHS_LINUX) }}
           CIBW_ARCHS_WINDOWS: "AMD64"
           CIBW_TEST_REQUIRES: "pytest scikit-learn"
           CIBW_BEFORE_BUILD: "pip install numpy>=2.0.0"
