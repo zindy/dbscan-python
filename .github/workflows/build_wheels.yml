@@ -1,12 +1,18 @@
-name: build-windows-wheel
+name: build-and-release
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [ "master" ]
+    tags: [ "v*" ] # Triggers the release logic
+  workflow_dispatch:
+
+permissions:
+  contents: write # Needed to create a GitHub Release
 
 jobs:
   build_wheels:
     name: Build wheel on windows-latest
     runs-on: windows-latest
-    # This keeps it from running on every single branch if you only want master/tags
     if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
 
     steps:
@@ -17,17 +23,37 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.17.0
         env:
-          # Targets only CPython 3.12 for Windows 64-bit
           CIBW_BUILD: "cp312-win_amd64"
           CIBW_TEST_REQUIRES: "pytest scikit-learn"
           CIBW_BEFORE_BUILD: "pip install numpy>=2.0.0"
           CIBW_BEFORE_BUILD_WINDOWS: "pip install numpy>=2.0.0 delvewheel"
-          # delvewheel is important for Windows to bundle necessary DLLs
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: "delvewheel show {wheel} && delvewheel repair -w {dest_dir} {wheel}"
           CIBW_TEST_COMMAND: "pytest {package}/test"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-python-312-wheel
+          name: windows-wheel
           path: ./wheelhouse/*.whl
+
+  create_release:
+    name: Create GitHub Release
+    needs: build_wheels
+    runs-on: ubuntu-latest
+    # Only run this job if we are pushing a tag (e.g., v1.0.2)
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download built wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-wheel
+          path: dist
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
+          generate_release_notes: true
+          draft: false
+          prerelease: false
